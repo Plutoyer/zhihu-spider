@@ -1,0 +1,89 @@
+#-*- coding:utf-8 -*-
+import requests
+from lxml import etree
+import html2text
+from multiprocessing import Pool
+import time
+import os
+import pymongo
+import re
+
+
+client = pymongo.MongoClient(host='localhost', port=27017)
+db = client.zhihu
+collection = db.zhihu
+
+
+headers = {
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36',
+    'referer': 'https://www.zhihu.com/collection/38887091'
+}
+
+def get_one_page(url,page):
+    response=requests.get(url,headers=headers)
+    html=etree.HTML(response.content)
+    titles=html.xpath('//h2[@class="zm-item-title"]/a/text()')
+    authors=html.xpath('//div[@class="zm-item-rich-text expandable js-collapse-body"]/@data-author-name')
+    votecounts=html.xpath('//div[@class="zm-item-vote-info"]//span[@class="js-voteCount"]/text()')
+    articles=html.xpath('//div[@class="zm-item-rich-text expandable js-collapse-body"]/textarea/text()')
+    links=html.xpath('//link[@itemprop="url"]/@href')
+    print('状态码{}---页数：{}----进程id：{}'.format(response.status_code, page, os.getpid()))
+    #print(len(titles),len(authors),len(votecounts),len(links))
+    p=[]
+    host="www.zhihu.com"
+    for i in range(len(titles)):
+        result={}
+        result["_id"]=(page-1)*10+i
+        title=titles[i].replace('?','')
+        result["title"]=title
+        result["author"]=authors[i]
+        result["votecounts"]=int(votecounts[i])
+        result["link"]=host+links[i]
+        article = htmltotext(articles[i])
+        result["article"]=article
+        #print(result)
+        p.append(result)
+    return p
+
+def htmltotext(html):
+    h=html2text.HTML2Text()
+    h.ignore_links=True
+    text=h.handle(html)
+    return text
+
+def write_to_DB(p):
+    try:
+        result=collection.insert_many(p).inserted_ids
+        print(result)
+    except:
+        print("插入失败")
+
+#此处更改为对应的保存地址即可
+def write_to_txt(p):
+    for item in p:
+        try:
+            filename=r"C:\Users\Administrator\.PyCharm2017.1\config\皮卡丘\articles\zhihu"+setFilename(item["title"])+"---"+item["author"]+".md"
+            file=open(filename, 'a', encoding='utf-8')
+            for key,value in item.items():
+                file.write('\n'+key+":"+str(value))
+                #print(key,value)\
+            file.close()
+            #print(item["title"]+"---"+item["author"]+".txt")
+        except FileExistsError:
+            print(FileExistsError)
+
+def setFilename(title):
+    return re.sub('[\/:*?"<>|]', '-', title)
+
+
+if __name__=='__main__':
+    base_url ='https://www.zhihu.com/collection/38887091'
+    start_time = time.time()
+    pool=Pool(processes=12)
+    for i in range(1,763):
+        url=base_url+'?page='+str(i)
+        pool.apply_async(get_one_page,args=(url,i,),callback=write_to_txt)
+    pool.close()
+    pool.join()
+    end_time = time.time()
+    print('\n--------------用时{}s------------\n'.format(float(end_time-start_time)))
