@@ -1,0 +1,34 @@
+"用process类开启多进程"
+import requests
+from lxml import etree
+from multiprocessing import Process
+import multiprocessing
+import time
+import os
+
+headers = {
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36',
+    'referer': 'https://www.zhihu.com/collection/38887091'
+}
+
+def get_one_page(url,i):
+    response=requests.get(url,headers=headers)
+    html=etree.HTML(response.content)
+    titles=html.xpath('//h2[@class="zm-item-title"]/a/text()')
+    print('状态码{}---页数：{}----进程id：{}'.format(response.status_code,i,os.getpid()))
+    for title in titles:
+        print('第{}页-- {}'.format(i,title))
+
+if __name__=='__main__':
+    base_url ='https://www.zhihu.com/collection/38887091'
+    start_time = time.time()
+    p=[]
+    for i in range(1,50):
+        url=base_url+'?page='+str(i)
+        p = Process(target=get_one_page, args=(url,i))
+        p.start()
+    while True:
+        if len(multiprocessing.active_children())==0:
+            end_time = time.time()
+            print('\n--------------用时{}s------------\n'.format(float(end_time-start_time)))
+            exit()
